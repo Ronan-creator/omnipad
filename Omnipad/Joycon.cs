@@ -8,17 +8,15 @@ using System.Configuration;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Nefarius.ViGEm.Client;
-using Nefarius.ViGEm.Client.Targets;
-using Nefarius.ViGEm.Client.Targets.Xbox360;
-
-namespace BetterJoyForCemu {
+namespace Omnipad {
     public class Joycon {
         float timing = 120.0f;
 
         public string path = String.Empty;
         public bool isPro = false;
-        bool isUSB = false;
+        public bool isUSB = false;
+        public string mac; // Bluetooth MAC as 12 uppercase hex chars; identifies the physical controller on USB and Bluetooth
+        public bool retired = false; // closed because the same controller is now connected another way
         public Joycon other;
 
         public bool send = true;
@@ -196,6 +194,18 @@ namespace BetterJoyForCemu {
         // For UdpServer
         public int PadId = 0;
         public int battery = 4;
+        public int batteryLevel = 8;  // 0-8 from the controller
+        public bool charging;
+        public int batteryPercent = -1;
+
+        // Subcommands requested from other threads (UI, tray, Xbox LED feedback); sent by the poll thread.
+        readonly System.Collections.Concurrent.ConcurrentQueue<(byte sc, byte[] data)> pending = new System.Collections.Concurrent.ConcurrentQueue<(byte, byte[])>();
+        DateTime lastActivity = DateTime.Now;
+        readonly bool[] lastButtons = new bool[20];
+        readonly float[] lastSticks = new float[4];
+        public bool poweringOff;
+        public int playerSlot = -1;  // estimated from battery voltage; -1 until the first reading
+        DateTime nextVoltageRequest = DateTime.Now.AddSeconds(2);
         public int model = 2;
         public int constate = 2;
         public int connection = 3;
@@ -204,8 +214,8 @@ namespace BetterJoyForCemu {
         public ulong Timestamp = 0;
         public int packetCounter = 0;
 
-        public Xbox360Controller xin;
-        public Xbox360Report report;
+        public VirtualPad xin; // assigned by JoyconManager; may be shared across reconnects of the same controller
+        public Xbox360Report report = new Xbox360Report();
 
         int rumblePeriod = Int32.Parse(ConfigurationManager.AppSettings["RumblePeriod"]);
         int lowFreq = Int32.Parse(ConfigurationManager.AppSettings["LowFreqRumble"]);
@@ -234,27 +244,30 @@ namespace BetterJoyForCemu {
             this.path = path;
 
 			connection = isUSB ? 0x01 : 0x02;
-
-            if (showAsXInput) {
-                xin = new Xbox360Controller(Program.emClient);
-
-                if (toRumble)
-                    xin.FeedbackReceived += ReceiveRumble;
-                report = new Xbox360Report();
-            }
 		}
 
-		public void ReceiveRumble(object sender, Nefarius.ViGEm.Client.Targets.Xbox360.Xbox360FeedbackReceivedEventArgs e) {
-			SetRumble(lowFreq, highFreq, (float) e.LargeMotor / (float) 255, rumblePeriod);
+		// Creates a standalone virtual pad for this connection (used for Joy-Cons; Pro Controllers get theirs from JoyconManager).
+		public void CreateOwnPad() {
+			if (!showAsXInput) return;
+			xin = new VirtualPad(Program.emClient);
+			xin.Owner = this;
+			if (toRumble)
+				xin.Rumble += ReceiveRumble;
+			xin.Slot += SetPlayerSlot;
+		}
+
+		public void ReceiveRumble(byte large, byte small) {
+			if (state <= state_.ATTACHED) return;
+			SetRumble(lowFreq, highFreq, (float)large / 255f, rumblePeriod);
 
 			if (other != null)
-				other.SetRumble(lowFreq, highFreq, (float)e.LargeMotor / (float)255, rumblePeriod);
+				other.SetRumble(lowFreq, highFreq, (float)large / 255f, rumblePeriod);
 		}
 
 		public void DebugPrint(String s, DebugType d) {
 			if (debug_type == DebugType.NONE) return;
 			if (d == DebugType.ALL || d == debug_type || debug_type == DebugType.ALL) {
-				form.console.Text += s + "\r\n";
+				form.AppendTextBox(s + "\r\n");
 			}
 		}
 		public bool GetButtonDown(Button b) {
@@ -290,42 +303,22 @@ namespace BetterJoyForCemu {
 			if (!isUSB) {
 				// Input report mode
 				Subcommand(0x03, new byte[] { 0x30 }, 1, false);
-                
-				a[0] = 0x1;
-				dump_calibration_data();
-            } else {
-				Subcommand(0x03, new byte[] { 0x3f }, 1, false);
-
-				a = Enumerable.Repeat((byte)0, 64).ToArray();
+			} else {
 				form.AppendTextBox("Using USB.\r\n");
-
-				a[0] = 0x80;
-				a[1] = 0x01;
-				HIDapi.hid_write(handle, a, new UIntPtr(2));
-				HIDapi.hid_read(handle, a, new UIntPtr(64));
-
-				if (a[2] != 0x3) {
-					PadMacAddress = new PhysicalAddress(new byte[] { a[9], a[8], a[7], a[6], a[5], a[4] });
-				}
-
-				// USB Pairing
-				a = Enumerable.Repeat((byte)0, 64).ToArray();
-				a[0] = 0x80; a[1] = 0x02; // Handshake
-				HIDapi.hid_write(handle, a, new UIntPtr(2));
-
-				a[0] = 0x80; a[1] = 0x03; // 3Mbit baud rate
-				HIDapi.hid_write(handle, a, new UIntPtr(2));
-
-				a[0] = 0x80; a[1] = 0x02; // Handshake at new baud rate
-				HIDapi.hid_write(handle, a, new UIntPtr(2));
-
-				a[0] = 0x80; a[1] = 0x04; // Prevent HID timeout
-				HIDapi.hid_write(handle, a, new UIntPtr(2));
-
-				dump_calibration_data();
+				if (!UsbHandshake())
+					form.AppendTextBox("USB handshake got no reply. If Steam is open, turn off its Switch controller support or enable HidHide in the config.\r\n");
 			}
 
-            BlinkLED();
+			if (mac != null) {
+				byte[] m = new byte[6];
+				for (int n = 0; n < 6; n++)
+					m[n] = Convert.ToByte(mac.Substring(n * 2, 2), 16);
+				PadMacAddress = new PhysicalAddress(m);
+			}
+
+			dump_calibration_data();
+
+            ApplyHomeLight();
 
             a[0] = leds_;
 			Subcommand(0x30, a, 1);
@@ -342,6 +335,103 @@ namespace BetterJoyForCemu {
 			return 0;
 		}
 
+		// Sends a 0x80 USB command. When a reply is expected, waits for the matching 0x81 report and returns it (null on timeout).
+		private byte[] UsbCommand(byte cmd, bool expectReply) {
+			byte[] buf = new byte[64];
+			buf[0] = 0x80; buf[1] = cmd;
+			if (HIDapi.hid_write(handle, buf, new UIntPtr(64)) < 0) return null;
+			if (!expectReply) return buf;
+
+			byte[] resp = new byte[64];
+			Stopwatch sw = Stopwatch.StartNew();
+			while (sw.ElapsedMilliseconds < 300) {
+				int r = HIDapi.hid_read_timeout(handle, resp, new UIntPtr(64), 50);
+				if (r < 0) return null;
+				if (r > 1 && resp[0] == 0x81 && resp[1] == cmd) return resp;
+			}
+			return null;
+		}
+
+		// USB start-up sequence (same as the Switch and SDL use): status, handshake, 3Mbit, handshake, force USB.
+		// Each step waits for its reply; v5 fired them blind, which left the controller half-initialised.
+		private bool UsbHandshake() {
+			for (int attempt = 0; attempt < 3; attempt++) {
+				if (attempt > 0) {
+					UsbCommand(0x05, false); // controller may still be in "USB only" mode from an earlier session; release it and retry
+					Thread.Sleep(100);
+				}
+
+				byte[] status = UsbCommand(0x01, true);
+				if (status == null) continue;
+				if (status[2] == 0x00) // byte 2 is 0 when a MAC follows (bytes 4-9, little endian)
+					mac = string.Format("{0:X2}{1:X2}{2:X2}{3:X2}{4:X2}{5:X2}", status[9], status[8], status[7], status[6], status[5], status[4]);
+
+				if (UsbCommand(0x02, true) == null) continue; // handshake
+				if (UsbCommand(0x03, true) != null)            // 3Mbit baud rate
+					UsbCommand(0x02, true);                    // handshake again at the new rate
+				UsbCommand(0x04, false);                       // only talk over USB, no timeout (no reply)
+				return true;
+			}
+			return false;
+		}
+
+		// Stops this connection without telling the controller anything, because the same controller
+		// has come back on another connection (e.g. it was plugged in while on Bluetooth).
+		public void Retire() {
+			retired = true;
+			StopPolling();
+			if (handle != IntPtr.Zero) {
+				HIDapi.hid_close(handle);
+				handle = IntPtr.Zero;
+			}
+			xin = null;
+			state = state_.NOT_ATTACHED;
+		}
+
+		private void StopPolling() {
+			stop_polling = true;
+			if (PollThreadObj != null && PollThreadObj != Thread.CurrentThread)
+				PollThreadObj.Join(1000);
+		}
+
+        public void Queue(byte sc, params byte[] data) => pending.Enqueue((sc, data));
+
+        // Puts the controller to sleep (Bluetooth). Press any button to wake it again.
+        public void PowerOff() {
+            if (isUSB || poweringOff) return;
+            poweringOff = true;
+            form.AppendTextBox((isPro ? "Pro Controller" : "Joy-Con") + " turned off.\r\n");
+            Queue(0x06, 0x00);          // HCI state: disconnect / sleep
+            other?.PowerOff();
+        }
+
+        // Player lights show which Xbox controller slot (1-4) this controller has.
+        public void SetPlayerSlot(int slot) {
+            if (slot < 0 || slot > 3) return;
+            playerSlot = slot;
+            if (Prefs.PlayerLights) Queue(0x30, (byte)(1 << slot));
+            if (other != null && other.playerSlot != slot) other.SetPlayerSlot(slot);
+        }
+
+        // Home button ring (Pro Controller and right Joy-Con): steady glow at the chosen brightness.
+        public void ApplyHomeLight() {
+            if (!(isPro || !isLeft)) return;
+            byte level = Prefs.HomeLight == "bright" ? (byte)0x0F : Prefs.HomeLight == "dim" ? (byte)0x04 : (byte)0x00;
+            if (level == 0) Queue(0x38, 0x00, 0x00, 0x00, 0x00);
+            else Queue(0x38, 0x01, (byte)(level << 4), (byte)(level << 4), 0x00); // one cycle, then stay at this level
+        }
+
+        // Called after each input report: any button change or real stick movement counts as activity.
+        void TrackActivity() {
+            bool changed = false;
+            for (int i = 0; i < buttons.Length; i++)
+                if (buttons[i] != lastButtons[i]) { lastButtons[i] = buttons[i]; changed = true; }
+            float[] st = { stick[0], stick[1], stick2[0], stick2[1] };
+            for (int i = 0; i < 4; i++)
+                if (Math.Abs(st[i] - lastSticks[i]) > 0.15f) { lastSticks[i] = st[i]; changed = true; }
+            if (changed) lastActivity = DateTime.Now;
+        }
+
         public void SetLED(byte leds_ = 0x0) {
             Subcommand(0x30, new byte[] { leds_ }, 1);
         }
@@ -357,30 +447,21 @@ namespace BetterJoyForCemu {
 			filterweight = a;
 		}
 
+		// Virtual pads are released by JoyconManager, not here, so a reconnect can keep the same pad.
 		public void Detach() {
-			stop_polling = true;
-
-            if (xin != null) {
-                xin.Disconnect(); xin.Dispose();
-            }
+			StopPolling();
+			if (handle == IntPtr.Zero) { state = state_.NOT_ATTACHED; return; }
 
 			if (state > state_.NO_JOYCONS) {
-                HIDapi.hid_set_nonblocking(handle, 0);
+				HIDapi.hid_set_nonblocking(handle, 0);
 
-                Subcommand(0x40, new byte[] { 0x0 }, 1);
-				//Subcommand(0x48, new byte[] { 0x0 }, 1); // Would turn off rumble?
+				Subcommand(0x40, new byte[] { 0x0 }, 1);
 
-				if (isUSB) {
-					byte[] a = Enumerable.Repeat((byte)0, 64).ToArray();
-					a[0] = 0x80; a[1] = 0x05; // Allow device to talk to BT again
-					HIDapi.hid_write(handle, a, new UIntPtr(2));
-                    a[0] = 0x80; a[1] = 0x06; // Allow device to talk to BT again
-                    HIDapi.hid_write(handle, a, new UIntPtr(2));
-                }
+				if (isUSB)
+					UsbCommand(0x05, false); // let the controller time out of USB mode / go back to Bluetooth
 			}
-			if (state > state_.DROPPED) {
-				HIDapi.hid_close(handle);
-			}
+			HIDapi.hid_close(handle);
+			handle = IntPtr.Zero;
 			state = state_.NOT_ATTACHED;
 		}
 
@@ -389,16 +470,30 @@ namespace BetterJoyForCemu {
             if (handle == IntPtr.Zero) return -2;
             HIDapi.hid_set_nonblocking(handle, 0);
 			byte[] raw_buf = new byte[report_len];
-            int ret = HIDapi.hid_read(handle, raw_buf, new UIntPtr(report_len));
-			if (ret > 0) {
+			// Timed read: a blocking read never returns if a Bluetooth controller goes quiet, so it was never marked dropped.
+            int ret = HIDapi.hid_read_timeout(handle, raw_buf, new UIntPtr(report_len), 100);
+			// Only 0x30 reports carry input. v5 also fed subcommand replies (0x21) and USB replies (0x81)
+			// into the button parser, which caused random presses and stick jumps.
+			// Reply to the battery-voltage request (subcommand 0x50): 2 bytes, units of 2.5 mV.
+			if (ret > 0 && raw_buf[0] == 0x21 && raw_buf[14] == 0x50) {
+				int units = raw_buf[15] | (raw_buf[16] << 8);
+				if (units > 0) batteryPercent = PercentFromVoltage(units * 2.5f / 1000f);
+			}
+			if (ret > 0 && raw_buf[0] == 0x30) {
+				// Byte 2, high nibble: battery level (8 full .. 0 empty), lowest bit = charging.
+				batteryLevel = (raw_buf[2] >> 4) & 0x0E;
+				charging = ((raw_buf[2] >> 4) & 0x01) != 0;
                 // Process packets as soon as they come
                 for (int n = 0; n < 3; n++) {
 					ExtractIMUValues(raw_buf, n);
+					GyroSample();
 
 					byte lag = (byte) Math.Max(0, raw_buf[1] - ts_en - 3);
 					if (n == 0) {
 						Timestamp += (ulong)lag * 5000; // add lag once
 						ProcessButtonsAndStick(raw_buf);
+						Shortcuts.Process(this);
+						TrackActivity();
 					}
 					Timestamp += 5000; // 5ms difference
 
@@ -409,6 +504,8 @@ namespace BetterJoyForCemu {
 					if (xin != null)
 						xin.SendReport(report);
 				}
+
+				GyroMouse.Flush(this);
 
 				if (ts_en == raw_buf[1]) {
 					form.AppendTextBox("Duplicate timestamp enqueued.\r\n");
@@ -422,25 +519,34 @@ namespace BetterJoyForCemu {
 
 		private Thread PollThreadObj; // pro times out over time randomly if it was USB and then bluetooth??
 		private void Poll() {
-			int attempts = 0;
+			Stopwatch sinceData = Stopwatch.StartNew();
+			int dropAfterMs = isUSB ? 1500 : 3000;
 			while (!stop_polling & state > state_.NO_JOYCONS) {
                 SendRumble(rumble_obj.GetData()); // Needed for EVERYTHING to not time out. Never remove pls
+                (byte sc, byte[] data) cmd;
+                if (pending.TryDequeue(out cmd))
+                    SendSubcommandNoWait(cmd.sc, cmd.data);
+                if (!isUSB && !poweringOff && Prefs.AutoSleepMinutes > 0 && (DateTime.Now - lastActivity).TotalMinutes >= Prefs.AutoSleepMinutes) {
+                    form.AppendTextBox("No input for " + Prefs.AutoSleepMinutes + " minutes - ");
+                    PowerOff();
+                }
+                if (DateTime.Now >= nextVoltageRequest) {
+                    nextVoltageRequest = DateTime.Now.AddSeconds(20);
+                    SendSubcommandNoWait(0x50, new byte[0]); // ask for battery voltage; the reply is parsed in ReceiveRaw
+                }
                 int a = ReceiveRaw();
 
                 if (a > 0) {
                     state = state_.IMU_DATA_OK;
-					attempts = 0;
-				} else if (attempts > 240) {
+					sinceData.Restart();
+				} else if (sinceData.ElapsedMilliseconds > dropAfterMs) {
+					if (stop_polling) break;
 					state = state_.DROPPED;
-                    form.AppendTextBox("Dropped.\r\n");
-
-                    DebugPrint("Connection lost. Is the Joy-Con connected?", DebugType.ALL);
+                    form.AppendTextBox((isUSB ? "USB" : "Bluetooth") + " connection dropped.\r\n");
 					break;
-				} else {
-					//form.AppendTextBox("Pause 5ms");
-					Thread.Sleep((Int32)5);
+				} else if (a < 0) {
+					Thread.Sleep(5); // read error (e.g. unplugged): don't spin
 				}
-				++attempts;
             }
 		}
 
@@ -622,6 +728,16 @@ namespace BetterJoyForCemu {
 
 			return 0;
 		}
+		// Gyro rates in degrees/second for aiming (same axes as the newer BetterJoy fork): yaw = turn, pitch = tilt.
+		void GyroSample() {
+			if (Prefs.GyroMode == "off" || !GyroMouse.IsAimer(this)) return;
+			float dir = isLeft ? 1 : -1;
+			float pitch = -dir * (gyr_r[1] - gyr_neutral[1]) * (816.0f / (gyr_sensiti[1] - gyr_neutral[1]));
+			float yaw = -dir * (gyr_r[2] - gyr_neutral[2]) * (816.0f / (gyr_sensiti[2] - gyr_neutral[2]));
+			if (float.IsNaN(yaw) || float.IsInfinity(yaw) || float.IsNaN(pitch) || float.IsInfinity(pitch)) return;
+			GyroMouse.Sample(this, yaw, pitch, 0.005f);
+		}
+
 		private void ExtractIMUValues(byte[] report_buf, int n = 0) {
 			gyr_r[0] = (Int16)(report_buf[19 + n * 12] | ((report_buf[20 + n * 12] << 8) & 0xff00));
 			gyr_r[1] = (Int16)(report_buf[21 + n * 12] | ((report_buf[22 + n * 12] << 8) & 0xff00));
@@ -711,6 +827,30 @@ namespace BetterJoyForCemu {
 			//}
 		}
 
+		// Sends a subcommand from the poll thread without waiting; its 0x21 reply arrives with the normal input.
+		private void SendSubcommandNoWait(byte sc, byte[] data) {
+			byte[] buf_ = new byte[report_len];
+			Array.Copy(rumble_obj.GetData(), 0, buf_, 2, 8);
+			Array.Copy(data, 0, buf_, 11, data.Length);
+			buf_[0] = 0x1;
+			buf_[1] = global_count;
+			buf_[10] = sc;
+			if (global_count == 0xf) global_count = 0;
+			else ++global_count;
+			HIDapi.hid_write(handle, buf_, new UIntPtr((uint)(11 + data.Length)));
+		}
+
+		// Li-ion discharge curve for the controller's single cell (rough, +-10%).
+		static readonly float[] CurveV = { 3.30f, 3.55f, 3.65f, 3.70f, 3.75f, 3.80f, 3.85f, 3.90f, 3.97f, 4.05f, 4.15f };
+		static readonly int[] CurveP = { 0, 5, 15, 25, 40, 50, 60, 70, 80, 90, 100 };
+		static int PercentFromVoltage(float v) {
+			if (v <= CurveV[0]) return 0;
+			for (int i = 1; i < CurveV.Length; i++)
+				if (v <= CurveV[i])
+					return (int)Math.Round(CurveP[i - 1] + (CurveP[i] - CurveP[i - 1]) * (v - CurveV[i - 1]) / (CurveV[i] - CurveV[i - 1]));
+			return 100;
+		}
+
 		private void SendRumble(byte[] buf) {
 			byte[] buf_ = new byte[report_len];
 			buf_[0] = 0x10;
@@ -734,7 +874,15 @@ namespace BetterJoyForCemu {
 			else ++global_count;
 			if (print) { PrintArray(buf_, DebugType.COMMS, len, 11, "Subcommand 0x" + string.Format("{0:X2}", sc) + " sent. Data: 0x{0:S}"); };
 			HIDapi.hid_write(handle, buf_, new UIntPtr(len + 11));
-			int res = HIDapi.hid_read_timeout(handle, response, new UIntPtr(report_len), 50);
+			// Input reports keep streaming while we wait, so skip them until the 0x21 reply for this subcommand arrives.
+			int res = 0;
+			Stopwatch sw = Stopwatch.StartNew();
+			while (sw.ElapsedMilliseconds < 100) {
+				res = HIDapi.hid_read_timeout(handle, response, new UIntPtr(report_len), 20);
+				if (res < 0) break;
+				if (res > 0 && response[0] == 0x21 && response[14] == sc) break;
+				res = 0;
+			}
 			if (res < 1) DebugPrint("No response.", DebugType.COMMS);
 			else if (print) { PrintArray(response, DebugType.COMMS, report_len - 1, 1, "Response ID 0x" + string.Format("{0:X2}", response[0]) + ". Data: 0x{0:S}"); }
 			return response;
@@ -846,7 +994,7 @@ namespace BetterJoyForCemu {
 			byte[] read_buf = new byte[len];
 			byte[] buf_ = new byte[len + 20];
 
-			for (int i = 0; i < 100; ++i) {
+			for (int i = 0; i < 10; ++i) {
 				buf_ = Subcommand(0x10, buf, 5, false);
 				if (buf_[15] == addr2 && buf_[16] == addr1) {
 					break;

@@ -259,3 +259,7 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+# Omnipad runtime files and installer output
+Omnipad.log
+**/settings
+installer/*.exe

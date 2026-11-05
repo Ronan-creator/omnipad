@@ -5,9 +5,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BetterJoyForCemu {
+namespace Omnipad {
     public static class Config { // stores dynamic configuration, including
-        const string PATH = "settings";
+        // Next to the exe: when Windows starts Omnipad at sign-in the working folder is System32.
+        static readonly string PATH = Path.Combine(Path.GetDirectoryName(System.Windows.Forms.Application.ExecutablePath), "settings");
         static Dictionary<string, bool> variables = new Dictionary<string, bool>();
 
         public static void Init() {

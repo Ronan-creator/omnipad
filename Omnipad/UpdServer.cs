@@ -10,7 +10,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Configuration;
 
-namespace BetterJoyForCemu {
+namespace Omnipad {
 	class UdpServer {
 		private Socket udpSock;
 		private uint serverId;
@@ -295,7 +295,7 @@ namespace BetterJoyForCemu {
 				udpSock.Close();
 				udpSock = null;
 
-				form.console.Text += "Could not start server. Make sure that only one instance of the program is running at a time and no other CemuHook applications are running.\r\n";
+				form.AppendTextBox("Could not start server. Make sure that only one instance of the program is running at a time and no other CemuHook applications are running.\r\n");
 				return;
 			}
 
@@ -304,7 +304,7 @@ namespace BetterJoyForCemu {
 			serverId = BitConverter.ToUInt32(randomBuf, 0);
 
 			running = true;
-			form.console.Text += String.Format("Starting server on {0}:{1}\r\n", ip.ToString(), port);
+			form.AppendTextBox(String.Format("Starting server on {0}:{1}\r\n", ip.ToString(), port));
 			StartReceive();
 		}
 

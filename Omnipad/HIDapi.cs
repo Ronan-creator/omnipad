@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-namespace BetterJoyForCemu {
+namespace Omnipad {
 	public class HIDapi {
 		#if LINUX
 		  const string dll = "libhidapi.so";
