@@ -46,7 +46,9 @@ jobs:
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) { choco install nsis -y --no-progress }
           $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
           if (-not $nsis) { $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
-          & $nsis -DVERSION=${{ steps.ver.outputs.version }} -DSRC=..\Omnipad\bin\Release\net48 -DVIGEM=ViGEmBus_Setup.exe installer/omnipad.nsi
+          $v = "${{ steps.ver.outputs.version }}"
+          & $nsis "-DVERSION=$v" "-DSRC=..\Omnipad\bin\Release\net48" "-DVIGEM=ViGEmBus_Setup.exe" "installer/omnipad.nsi"
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
           Copy-Item "installer/Omnipad-Setup-${{ steps.ver.outputs.version }}.exe" Omnipad-Setup.exe
 
       - uses: actions/upload-artifact@v4
