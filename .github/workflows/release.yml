@@ -36,6 +36,7 @@ jobs:
           $publish = ($LASTEXITCODE -ne 0) -and ("${{ github.event_name }}" -eq "push") -and ("${{ github.ref }}" -eq "refs/heads/main")
           "publish=$($publish.ToString().ToLower())" >> $env:GITHUB_OUTPUT
           Write-Host "Version $v, publish: $publish"
+          exit 0  # "gh release view" fails when there's no release yet; that's expected
 
       - name: Package zip
         shell: pwsh
