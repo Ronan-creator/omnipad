@@ -1,9 +1,6 @@
-## Omnipad 1.9.0
+## Omnipad 1.9.1
 
-**Updates install themselves.** Omnipad checks for a new version when it starts and every 6 hours. Click "Update to vX now" (top bar, tray menu or Settings) and it downloads the update, installs it silently and comes back in the tray; your settings are kept. With "Install updates automatically" on (the default), it does this by itself once no controller has been used for 10 minutes, so it never cuts out mid-game. (From this version on; updating to 1.9.0 itself is one last manual install.)
-
-**Button layout switch.** Settings > Buttons > Button layout: "Nintendo positions" (as before: the bottom button is Xbox A) or "Xbox labels" (press the button marked A and the game gets A, likewise B/X/Y). Applies straight away, and it's in the tray menu so you can flip back and forth.
-
-**Hold-to-run shortcuts.** Hold Capture or Minus for 5 seconds (or 2/3/8) to run an action: switch between PC screen and TV, TV only, PC only, extend, open Steam Big Picture, open Omnipad, run any program/shortcut/website, or press keys (e.g. Win+P). The controller buzzes when it runs. A quick tap of Capture still takes a screenshot, and Minus still works as Xbox Back.
-
-**Fix:** controller cards are wide enough for all their buttons ("Turn off" was cut off).
+**Easier to find in emulators.**
+- Each controller card now shows which Xbox player it is ("Active as Xbox controller · Player 1"), matching the controller's lights. In emulators that list "XInput Controller 1/2/3/4", pick that number.
+- Settings > "Name in emulators and game controller lists": rename Omnipad's Xbox controller (e.g. "Omnipad Pro Controller"). Shows up in Windows' Game Controllers panel and in emulators that list DirectInput devices.
+- Tips on the same page: hide the real Nintendo controller so only the Xbox one is listed, and use the DSU / Cemuhook option (127.0.0.1, port 26760) for motion controls.

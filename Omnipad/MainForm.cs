@@ -144,7 +144,9 @@ namespace Omnipad {
 
             switch (Jc.state) {
                 case Joycon.state_.IMU_DATA_OK:
-                    status = Jc.xin != null || Jc.other != null ? "Active as Xbox controller" : "Connected (Xbox output off)";
+                    var pad = Jc.xin ?? Jc.other?.xin;
+                    status = pad != null ? "Active as Xbox controller" + (pad.LastSlot >= 0 ? " · Player " + (pad.LastSlot + 1) : "") + "  (\"" + DeviceNames.XboxName + "\")"
+                           : Jc.other != null ? "Active as Xbox controller" : "Connected (Xbox output off)";
                     statusColor = Theme.Good; break;
                 case Joycon.state_.DROPPED:
                     status = "Connection lost"; statusColor = Theme.Bad; break;
@@ -159,6 +161,7 @@ namespace Omnipad {
         // The card grows to fit its buttons (they used to be cut off, e.g. "Turn off").
         void FitWidth() {
             int w = Math.Max(380, buttons.Left + buttons.GetPreferredSize(Size.Empty).Width + 10);
+            w = Math.Max(w, 132 + TextRenderer.MeasureText(status, Theme.Body, Size.Empty, TextFormatFlags.NoPadding).Width + 18);
             if (Width != w) Width = w;
         }
 
@@ -586,6 +589,22 @@ namespace Omnipad {
             invert.CheckedChanged += (s, e) => { Prefs.GyroInvertY = invert.Checked; SaveSetting("GyroInvertY", invert.Checked.ToString().ToLower()); };
             body.Controls.Add(invert);
             body.Controls.Add(Theme.Label("Moves the mouse, so it works in games that accept mouse and controller at the same time. Pro Controller, or the right Joy-Con of a pair.", Theme.Small, Theme.Muted));
+
+            body.Controls.Add(SectionLabel("Name in emulators and game controller lists"));
+            var nameRow = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, WrapContents = false, Margin = new Padding(0, 4, 0, 4) };
+            var nameLbl = Theme.Label("Show it as:"); nameLbl.AutoSize = false; nameLbl.Width = 130; nameLbl.Height = 26; nameLbl.TextAlign = ContentAlignment.MiddleLeft;
+            var nameBox = new TextBox { Width = 280, BackColor = Theme.Surface2, ForeColor = Theme.Text, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Body, Text = DeviceNames.XboxName };
+            var nameSave = Theme.Button("Save name", (s, e) => {
+                string err = DeviceNames.SetXboxName(nameBox.Text.Trim());
+                AppendTextBox((err == null ? "Controller name set to \"" + DeviceNames.XboxName + "\". Restart the emulator to see it." : "Couldn't set the name: " + err) + "\r\n");
+            });
+            nameSave.Margin = new Padding(8, 0, 0, 0);
+            nameRow.Controls.Add(nameLbl); nameRow.Controls.Add(nameBox); nameRow.Controls.Add(nameSave);
+            body.Controls.Add(nameRow);
+            body.Controls.Add(Theme.Label("Renames Omnipad's Xbox controller in Windows' Game Controllers panel and in emulators that list DirectInput devices.\n" +
+                "Emulators that use XInput show \"XInput / Xbox Controller\" plus a number: pick the number shown as \"Player N\" on the controller's card (and its lights).\n" +
+                "Seeing the Nintendo controller listed as well? Turn on \"Hide the real controller\" above so only the Xbox one is left.\n" +
+                "For motion controls in emulators (Cemu, Yuzu-style, Dolphin...), use their DSU / Cemuhook option: server 127.0.0.1, port 26760.", Theme.Small, Theme.Muted));
 
             body.Controls.Add(SectionLabel("Controllers"));
             body.Controls.AddRange(new Control[] { scan, rumble, graceRow });
