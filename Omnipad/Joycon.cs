@@ -200,7 +200,7 @@ namespace Omnipad {
 
         // Subcommands requested from other threads (UI, tray, Xbox LED feedback); sent by the poll thread.
         readonly System.Collections.Concurrent.ConcurrentQueue<(byte sc, byte[] data)> pending = new System.Collections.Concurrent.ConcurrentQueue<(byte, byte[])>();
-        DateTime lastActivity = DateTime.Now;
+        public DateTime lastActivity = DateTime.Now;   // last button/stick change (auto-sleep, auto-update)
         readonly bool[] lastButtons = new bool[20];
         readonly float[] lastSticks = new float[4];
         public bool poweringOff;
@@ -565,7 +565,7 @@ namespace Omnipad {
 
 		public float[] otherStick = { 0, 0 };
 
-		bool swapButtons = Boolean.Parse(ConfigurationManager.AppSettings["SwapButtons"]);
+		bool swapButtons => Prefs.SwapButtons;   // live: changing the button layout applies straight away
 		private int ProcessButtonsAndStick(byte[] report_buf) {
 			if (report_buf[0] == 0x00) return -1;
 

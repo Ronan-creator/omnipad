@@ -77,6 +77,7 @@ namespace Omnipad {
 
         static MainForm form;
         public static MainForm Form => form;
+        public static bool JustUpdated;
 
         public static void Start() {
             MainForm.Log("---- Omnipad starting ----");
@@ -173,6 +174,7 @@ namespace Omnipad {
             }
 
             bool cfgMin;
+            JustUpdated = args.Contains("--updated");
             StartMinimized = args.Contains("--minimized") || (bool.TryParse(ConfigurationManager.AppSettings["StartMinimized"], out cfgMin) && cfgMin);
 
             form = new MainForm();

@@ -80,11 +80,17 @@ Section "Omnipad" SecMain
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Services\ViGEmBus" "ImagePath"
   SetRegView 32
   ${If} $0 == ""
+  ${AndIfNot} ${Silent}
     MessageBox MB_OKCANCEL|MB_ICONINFORMATION "Omnipad needs the ViGEmBus driver to create the Xbox controller.$\r$\n$\r$\nClick OK to install it now (Windows will ask for permission)." IDCANCEL skipvigem
     InitPluginsDir
     File "/oname=$PLUGINSDIR\ViGEmBus_Setup.exe" "${VIGEM}"
     ExecShellWait "runas" "$PLUGINSDIR\ViGEmBus_Setup.exe" "/passive /norestart"
     skipvigem:
+  ${EndIf}
+
+  ; Silent update started by Omnipad itself ("/S /UPDATE"): bring Omnipad straight back, in the tray.
+  ${If} ${Silent}
+    Exec '"$INSTDIR\Omnipad.exe" --minimized --updated'
   ${EndIf}
 SectionEnd
 

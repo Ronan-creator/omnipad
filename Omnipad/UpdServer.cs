@@ -316,7 +316,7 @@ namespace Omnipad {
 			}
 		}
 
-		bool swapButtons = Boolean.Parse(ConfigurationSettings.AppSettings["SwapButtons"]);
+		bool swapButtons => Prefs.SwapButtons;
 		private bool ReportToBuffer(Joycon hidReport, byte[] outputData, ref int outIdx) {
 			outputData[outIdx] = 0;
 

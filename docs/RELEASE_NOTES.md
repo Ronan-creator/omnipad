@@ -1,15 +1,9 @@
-**Omnipad 1.8.0**: the first release. Use your Switch Pro Controller and Joy-Cons as Xbox controllers on Windows, over USB or Bluetooth.
+## Omnipad 1.9.0
 
-### Install
-Download **Omnipad-Setup.exe** below and run it. It installs ViGEmBus if you need it. On the last page leave "Start Omnipad now" ticked and allow the admin prompt once, so Omnipad starts with Windows.
-No installer? Grab the `.zip`, unzip anywhere and run `Omnipad.exe`.
+**Updates install themselves.** Omnipad checks for a new version when it starts and every 6 hours. Click "Update to vX now" (top bar, tray menu or Settings) and it downloads the update, installs it silently and comes back in the tray; your settings are kept. With "Install updates automatically" on (the default), it does this by itself once no controller has been used for 10 minutes, so it never cuts out mid-game. (From this version on; updating to 1.9.0 itself is one last manual install.)
 
-### Highlights
-- Wired Pro Controller that actually works, plus seamless USB <-> Bluetooth switching (one Xbox pad per controller)
-- Tray app that starts at sign-in, battery %, low-battery alerts
-- Auto-sleep / turn off wireless controllers, Home button glow, player lights
-- Gyro aiming, Capture -> screenshot, hold Home -> Steam Big Picture
-- Live input tester with stick-drift check, USB device monitor
-- Gets past HidGuardian from old BetterJoy installs; optional HidHide support
+**Button layout switch.** Settings > Buttons > Button layout: "Nintendo positions" (as before: the bottom button is Xbox A) or "Xbox labels" (press the button marked A and the game gets A, likewise B/X/Y). Applies straight away, and it's in the tray menu so you can flip back and forth.
 
-Built on [BetterJoy](https://github.com/Davidobot/BetterJoy) by Davidobot.
+**Hold-to-run shortcuts.** Hold Capture or Minus for 5 seconds (or 2/3/8) to run an action: switch between PC screen and TV, TV only, PC only, extend, open Steam Big Picture, open Omnipad, run any program/shortcut/website, or press keys (e.g. Win+P). The controller buzzes when it runs. A quick tap of Capture still takes a screenshot, and Minus still works as Xbox Back.
+
+**Fix:** controller cards are wide enough for all their buttons ("Turn off" was cut off).

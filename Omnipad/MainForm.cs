@@ -113,6 +113,7 @@ namespace Omnipad {
     class ControllerCard : Panel {
         public readonly Joycon Jc;
         readonly Button joinBtn;
+        readonly FlowLayoutPanel buttons;
         string title = "", status = "";
         Color statusColor = Theme.Muted;
 
@@ -123,7 +124,7 @@ namespace Omnipad {
             BackColor = Theme.Bg;
             Margin = new Padding(0, 0, 16, 16);
 
-            var buttons = new FlowLayoutPanel { Location = new Point(116, 112), AutoSize = true, BackColor = Theme.Surface, WrapContents = false };
+            buttons = new FlowLayoutPanel { Location = new Point(116, 112), AutoSize = true, BackColor = Theme.Surface, WrapContents = false };
             buttons.Controls.Add(Theme.Button("Test buttons", (s, e) => form.OpenTester(Jc), true));
             buttons.Controls.Add(Theme.Button("Locate", (s, e) => Jc.SetRumble(20.0f, 400.0f, 1.0f, 300)));
             if (!jc.isUSB) buttons.Controls.Add(Theme.Button("Turn off", (s, e) => Jc.PowerOff()));
@@ -151,7 +152,14 @@ namespace Omnipad {
                     status = "Connecting…"; statusColor = Theme.Warn; break;
             }
             if (joinBtn != null) joinBtn.Text = Jc.other == null ? "Pair with other Joy-Con" : "Split";
+            FitWidth();
             Invalidate();
+        }
+
+        // The card grows to fit its buttons (they used to be cut off, e.g. "Turn off").
+        void FitWidth() {
+            int w = Math.Max(380, buttons.Left + buttons.GetPreferredSize(Size.Empty).Width + 10);
+            if (Width != w) Width = w;
         }
 
         protected override void OnPaint(PaintEventArgs e) {
@@ -339,13 +347,24 @@ namespace Omnipad {
             monitor.Refreshed += () => OnUi(FillGrid);
             HidHide.Changed += () => OnUi(UpdateHeader);
             Updater.Found += () => OnUi(() => {
-                updatePill.Set("Update available: v" + Updater.Latest + "  →", Theme.Gold);
+                updatePill.Set("Update to v" + Updater.Latest + "  →", Theme.Gold);
                 updatePill.Visible = true;
-                notifyIcon.ShowBalloonTip(5000, "Omnipad update available", "Version " + Updater.Latest + " is out. Click here to download it.", ToolTipIcon.Info);
+                notifyIcon.ShowBalloonTip(5000, "Omnipad " + Updater.Latest + " is ready",
+                    Updater.AutoInstall ? "It installs itself when your controllers aren't in use. Click to update now." : "Click to update now - it only takes a few seconds.", ToolTipIcon.Info);
+                if (updateNowBtn != null) { updateNowBtn.Visible = true; updateNowBtn.Text = "Update to v" + Updater.Latest + " now"; }
             });
+            Updater.Status += text => OnUi(() => { updatePill.Set(text, Theme.Gold); updatePill.Visible = true; });
 
             int ticks = 0;
-            uiTimer.Tick += (s, e) => { RefreshCards(); if (++ticks % 10 == 0) FillGrid(); }; // FillGrid here only fades the "new" highlight
+            uiTimer.Tick += (s, e) => {
+                RefreshCards();
+                if (++ticks % 10 == 0) FillGrid(); // FillGrid here only fades the "new" highlight
+                if (ticks % 30 == 0) {
+                    // Automatic update only while no controller has been used for 10 minutes, so it never cuts out mid-game.
+                    bool inUse = (Program.mgr?.j?.ToList() ?? new List<Joycon>()).Any(j => j.state == Joycon.state_.IMU_DATA_OK && (DateTime.Now - j.lastActivity).TotalMinutes < 10);
+                    Updater.MaybeAutoInstall(inUse);
+                }
+            };
         }
 
         // ---------- layout ----------
@@ -498,8 +517,6 @@ namespace Omnipad {
             var scan = Theme.Check("Automatically look for new controllers", Config.Value("ProgressiveScan"));
             scan.CheckedChanged += (s, e) => Config.Save("ProgressiveScan", scan.Checked);
 
-            var swap = Theme.Check("Swap A/B and X/Y (use Xbox button labels instead of Nintendo positions)  *", B("SwapButtons", false));
-            swap.CheckedChanged += (s, e) => SaveSetting("SwapButtons", swap.Checked.ToString().ToLower());
 
             var rumble = Theme.Check("Rumble  *", B("EnableRumble", true));
             rumble.CheckedChanged += (s, e) => SaveSetting("EnableRumble", rumble.Checked.ToString().ToLower());
@@ -527,6 +544,11 @@ namespace Omnipad {
             body.Controls.Add(autostart);
             body.Controls.Add(minimized);
             body.Controls.Add(SectionLabel("Buttons"));
+            layoutChoice = (ComboBox)((FlowLayoutPanel)ChoiceRow("Button layout:", "SwapButtons", Prefs.SwapButtons ? "true" : "false",
+                new[] { ("false", "Nintendo positions (bottom button = Xbox A)"), ("true", "Xbox labels (press A, the game gets A)") },
+                v => Prefs.SwapButtons = v == "true")).Controls[1];
+            body.Controls.Add(layoutChoice.Parent);
+            body.Controls.Add(Theme.Label("Applies straight away. Also in the tray menu, to flip back and forth.", Theme.Small, Theme.Muted));
             body.Controls.Add(ChoiceRow("Capture button:", "CaptureAction", Shortcuts.CaptureAction,
                 new[] { ("steam", "Steam screenshot (F12, in games)"), ("windows", "Windows screenshot (Game Bar)"), ("clip", "Save last 30 seconds (Game Bar)"), ("none", "Do nothing") },
                 v => Shortcuts.CaptureAction = v));
@@ -534,6 +556,13 @@ namespace Omnipad {
                 new[] { ("bigpicture", "Open Steam Big Picture"), ("omnipad", "Open Omnipad"), ("none", "Do nothing") },
                 v => Shortcuts.HomeHoldAction = v));
             body.Controls.Add(Theme.Label("A quick tap of Home is still the Xbox Guide button.", Theme.Small, Theme.Muted));
+            body.Controls.Add(SectionLabel("Hold-to-run shortcuts"));
+            body.Controls.Add(ChoiceRow("Hold for:", "HoldSeconds", Shortcuts.HoldSeconds.ToString(),
+                new[] { ("2", "2 seconds"), ("3", "3 seconds"), ("5", "5 seconds"), ("8", "8 seconds") },
+                v => Shortcuts.HoldSeconds = int.Parse(v)));
+            body.Controls.Add(HoldRow("Hold Capture:", "CaptureHold"));
+            body.Controls.Add(HoldRow("Hold Minus (−):", "MinusHold"));
+            body.Controls.Add(Theme.Label("The controller buzzes when the shortcut runs. A quick tap of Capture still does the Capture action above; Minus still works as Xbox Back.", Theme.Small, Theme.Muted));
             body.Controls.Add(SectionLabel("Battery & lights"));
             body.Controls.Add(ChoiceRow("Auto-sleep:", "AutoSleepMinutes", Prefs.AutoSleepMinutes.ToString(),
                 new[] { ("5", "After 5 minutes without input"), ("10", "After 10 minutes"), ("15", "After 15 minutes"), ("30", "After 30 minutes"), ("0", "Never") },
@@ -559,8 +588,16 @@ namespace Omnipad {
             body.Controls.Add(Theme.Label("Moves the mouse, so it works in games that accept mouse and controller at the same time. Pro Controller, or the right Joy-Con of a pair.", Theme.Small, Theme.Muted));
 
             body.Controls.Add(SectionLabel("Controllers"));
-            body.Controls.AddRange(new Control[] { scan, swap, rumble, graceRow });
+            body.Controls.AddRange(new Control[] { scan, rumble, graceRow });
             body.Controls.Add(Theme.Label("*  Takes effect the next time Omnipad starts.", Theme.Small, Theme.Muted));
+
+            body.Controls.Add(SectionLabel("Updates"));
+            var autoUpd = Theme.Check("Install updates automatically (only when no controller has been used for 10 minutes)", Updater.AutoInstall);
+            autoUpd.CheckedChanged += (s, e) => { Updater.AutoInstall = autoUpd.Checked; SaveSetting("AutoUpdate", autoUpd.Checked.ToString().ToLower()); };
+            body.Controls.Add(autoUpd);
+            updateNowBtn = Theme.Button(Updater.UpdateAvailable ? "Update to v" + Updater.Latest + " now" : "Update now", (s, e) => Updater.Install(), true);
+            updateNowBtn.Visible = Updater.UpdateAvailable; updateNowBtn.Margin = new Padding(0, 6, 0, 4);
+            body.Controls.Add(updateNowBtn);
 
             body.Controls.Add(SectionLabel("About"));
             body.Controls.Add(Theme.Label("Omnipad v" + Updater.Current.ToString(3) + " by Omnific - Switch controllers as Xbox controllers, over USB or Bluetooth.", Theme.Body));
@@ -570,6 +607,45 @@ namespace Omnipad {
             page.Controls.Add(body);
             PageHeader(page, "Settings", "Saved automatically.");
             return page;
+        }
+
+        Button updateNowBtn;
+        ComboBox layoutChoice;
+
+        public void SetButtonLayout(bool xboxLabels) {
+            Prefs.SwapButtons = xboxLabels;
+            SaveSetting("SwapButtons", xboxLabels ? "true" : "false");
+            AppendTextBox("Button layout: " + (xboxLabels ? "Xbox labels (A is A)" : "Nintendo positions") + "\r\n");
+            OnUi(() => { if (layoutChoice != null) layoutChoice.SelectedIndex = xboxLabels ? 1 : 0; });
+        }
+
+        // A hold shortcut: what to do + (for "run" and "keys") what to run / which keys.
+        Control HoldRow(string label, string key) {
+            var options = new[] {
+                ("none", "Do nothing"), ("toggle-display", "Switch between PC screen and TV"), ("tv", "TV / second screen only"),
+                ("pc", "PC screen only"), ("extend", "Extend to both screens"), ("bigpicture", "Open Steam Big Picture"),
+                ("omnipad", "Open Omnipad"), ("run", "Run a program, shortcut or website…"), ("keys", "Press keys…") };
+            var wrap = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
+            var targetRow = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, WrapContents = false, Margin = new Padding(130, 0, 0, 6) };
+            var target = new TextBox { Width = 280, BackColor = Theme.Surface2, ForeColor = Theme.Text, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Body, Text = Shortcuts.Target(key) };
+            var browse = Theme.Button("Browse…", null); browse.Margin = new Padding(8, 0, 0, 0);
+            var hint = Theme.Label("", Theme.Small, Theme.Muted); hint.Margin = new Padding(8, 5, 0, 0);
+            void Refresh() {
+                string a = Shortcuts.Action(key);
+                targetRow.Visible = a == "run" || a == "keys";
+                browse.Visible = a == "run";
+                hint.Text = a == "keys" ? "e.g. Win+P, Ctrl+Alt+T, Alt+Enter" : "a file, shortcut (.lnk), program or https:// link";
+            }
+            var row = ChoiceRow(label, key + "Action", Shortcuts.Action(key), options, v => { Shortcuts.SetAction(key, v); Refresh(); });
+            target.Leave += (s, e) => { Shortcuts.SetTarget(key, target.Text.Trim()); SaveSetting(key + "Target", target.Text.Trim()); };
+            browse.Click += (s, e) => {
+                using (var d = new OpenFileDialog { Title = "Pick what to run", Filter = "Programs and shortcuts|*.exe;*.lnk;*.bat;*.cmd;*.url|All files|*.*" })
+                    if (d.ShowDialog(this) == DialogResult.OK) { target.Text = d.FileName; Shortcuts.SetTarget(key, d.FileName); SaveSetting(key + "Target", d.FileName); }
+            };
+            targetRow.Controls.Add(target); targetRow.Controls.Add(browse); targetRow.Controls.Add(hint);
+            wrap.Controls.Add(row); wrap.Controls.Add(targetRow);
+            Refresh();
+            return wrap;
         }
 
         // Label + dark drop-down that saves its choice straight away.
@@ -651,6 +727,8 @@ namespace Omnipad {
             uiTimer.Start();
             notifyIcon.BalloonTipClicked += (s, e2) => { if (Updater.UpdateAvailable) OpenUpdate(); };
             Updater.CheckInBackground();
+            if (Program.JustUpdated)
+                notifyIcon.ShowBalloonTip(4000, "Omnipad updated", "You're on version " + Updater.Current.ToString(3) + ".", ToolTipIcon.Info);
 
             // First run: start with Windows by default (it's a background tray app).
             if (ConfigurationManager.AppSettings["AutostartSetUp"] != "true") {
@@ -693,9 +771,10 @@ namespace Omnipad {
             Activate();
         }
 
-        void OpenUpdate() {
-            try { Process.Start(Updater.ReleaseUrl ?? ("https://github.com/" + Updater.Repo + "/releases/latest")); } catch { }
-        }
+        void OpenUpdate() { Updater.Install(); }
+
+        // The installer is about to replace the files: close for real (it starts Omnipad again afterwards).
+        public void ExitForUpdate() { OnUi(() => { exiting = true; Close(); }); }
 
         void ExitApp() {
             exiting = true;
@@ -761,7 +840,10 @@ namespace Omnipad {
                     (s, e) => { foreach (var jc in wireless) jc.PowerOff(); }) { ForeColor = Theme.Text });
             menu.Items.Add(new ToolStripSeparator());
             if (Updater.UpdateAvailable)
-                menu.Items.Add(new ToolStripMenuItem("Update available: v" + Updater.Latest, null, (s, e) => OpenUpdate()) { ForeColor = Theme.Gold });
+                menu.Items.Add(new ToolStripMenuItem("Update to v" + Updater.Latest + " now", null, (s, e) => OpenUpdate()) { ForeColor = Theme.Gold });
+            var layout = new ToolStripMenuItem(Prefs.SwapButtons ? "Buttons: Xbox labels (A is A)" : "Buttons: Nintendo positions") { ForeColor = Theme.Text, ToolTipText = "Click to switch" };
+            layout.Click += (s, e) => SetButtonLayout(!Prefs.SwapButtons);
+            menu.Items.Add(layout);
             menu.Items.Add(new ToolStripMenuItem("Open Omnipad", null, (s, e) => RestoreFromTray()) { Font = Theme.Bold, ForeColor = Theme.Text });
             var auto = new ToolStripMenuItem("Start with Windows") { Checked = Autostart.Enabled, ForeColor = Theme.Text };
             auto.Click += (s, e) => { if (Autostart.Enabled) Autostart.Disable(); else AppendTextBox(Autostart.Enable() + "\r\n"); SyncAutostartCheck(); };
