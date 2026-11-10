@@ -1,6 +1,4 @@
-## Omnipad 1.9.1
+## Omnipad 1.9.2
 
-**Easier to find in emulators.**
-- Each controller card now shows which Xbox player it is ("Active as Xbox controller · Player 1"), matching the controller's lights. In emulators that list "XInput Controller 1/2/3/4", pick that number.
-- Settings > "Name in emulators and game controller lists": rename Omnipad's Xbox controller (e.g. "Omnipad Pro Controller"). Shows up in Windows' Game Controllers panel and in emulators that list DirectInput devices.
-- Tips on the same page: hide the real Nintendo controller so only the Xbox one is listed, and use the DSU / Cemuhook option (127.0.0.1, port 26760) for motion controls.
+- **Check for updates button** (Settings > Updates, and the tray menu): checks GitHub right away and, if there's a newer version, installs it and reopens Omnipad. The top bar says "You're up to date" otherwise.
+- **RetroArch and other emulators:** they list every controller and often grab the real Nintendo one (only Omnipad can read it, so the buttons do nothing). Turn on "Hide the Nintendo controller (for emulators)" in the tray menu (same as the HidHide switch in Settings) so only Omnipad's Xbox controller is left.

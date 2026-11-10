@@ -31,6 +31,17 @@ namespace Omnipad {
             timer = new System.Threading.Timer(_ => Check(), null, TimeSpan.FromSeconds(20), TimeSpan.FromHours(6));
         }
 
+        // "Check for updates" button: look now, and if there's a newer version install it straight away.
+        public static void CheckAndInstallNow() {
+            if (Installing) return;
+            ThreadPool.QueueUserWorkItem(_ => {
+                Status?.Invoke("Checking for updates…");
+                Check();
+                if (UpdateAvailable) Install();
+                else Status?.Invoke(Latest == null ? "Couldn't reach GitHub - check your internet connection." : "You're up to date (v" + Current.ToString(3) + ").");
+            });
+        }
+
         static void Check() {
             try {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;

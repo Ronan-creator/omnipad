@@ -615,8 +615,13 @@ namespace Omnipad {
             autoUpd.CheckedChanged += (s, e) => { Updater.AutoInstall = autoUpd.Checked; SaveSetting("AutoUpdate", autoUpd.Checked.ToString().ToLower()); };
             body.Controls.Add(autoUpd);
             updateNowBtn = Theme.Button(Updater.UpdateAvailable ? "Update to v" + Updater.Latest + " now" : "Update now", (s, e) => Updater.Install(), true);
-            updateNowBtn.Visible = Updater.UpdateAvailable; updateNowBtn.Margin = new Padding(0, 6, 0, 4);
-            body.Controls.Add(updateNowBtn);
+            updateNowBtn.Visible = Updater.UpdateAvailable; updateNowBtn.Margin = new Padding(0, 6, 8, 4);
+            var checkBtn = Theme.Button("Check for updates", (s, e) => Updater.CheckAndInstallNow());
+            checkBtn.Margin = new Padding(0, 6, 0, 4);
+            var updRow = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, WrapContents = false, Margin = new Padding(0) };
+            updRow.Controls.Add(updateNowBtn); updRow.Controls.Add(checkBtn);
+            body.Controls.Add(updRow);
+            body.Controls.Add(Theme.Label("Checks GitHub and, if there's a newer version, installs it and reopens Omnipad - nothing to download by hand.", Theme.Small, Theme.Muted));
 
             body.Controls.Add(SectionLabel("About"));
             body.Controls.Add(Theme.Label("Omnipad v" + Updater.Current.ToString(3) + " by Omnific - Switch controllers as Xbox controllers, over USB or Bluetooth.", Theme.Body));
@@ -630,6 +635,12 @@ namespace Omnipad {
 
         Button updateNowBtn;
         ComboBox layoutChoice;
+
+        // Same as the HidHide switch in Settings.
+        public void SetHiding(bool on) {
+            SaveSetting("UseHidHide", on.ToString().ToLower());
+            ThreadPool.QueueUserWorkItem(_ => HidHide.SetEnabled(on));
+        }
 
         public void SetButtonLayout(bool xboxLabels) {
             Prefs.SwapButtons = xboxLabels;
@@ -860,6 +871,12 @@ namespace Omnipad {
             menu.Items.Add(new ToolStripSeparator());
             if (Updater.UpdateAvailable)
                 menu.Items.Add(new ToolStripMenuItem("Update to v" + Updater.Latest + " now", null, (s, e) => OpenUpdate()) { ForeColor = Theme.Gold });
+            else menu.Items.Add(new ToolStripMenuItem("Check for updates", null, (s, e) => Updater.CheckAndInstallNow()) { ForeColor = Theme.Text });
+            if (HidHide.Installed && HidHide.Allowed && Program.IsAdmin) {
+                var hide = new ToolStripMenuItem("Hide the Nintendo controller (for emulators)") { Checked = HidHide.Enabled, ForeColor = Theme.Text };
+                hide.Click += (s, e) => SetHiding(!HidHide.Enabled);
+                menu.Items.Add(hide);
+            }
             var layout = new ToolStripMenuItem(Prefs.SwapButtons ? "Buttons: Xbox labels (A is A)" : "Buttons: Nintendo positions") { ForeColor = Theme.Text, ToolTipText = "Click to switch" };
             layout.Click += (s, e) => SetButtonLayout(!Prefs.SwapButtons);
             menu.Items.Add(layout);
@@ -950,7 +967,8 @@ namespace Omnipad {
                 ? "HidHide is not installed. Get it from github.com/nefarius/HidHide/releases, restart, then run Omnipad as administrator once."
                 : !Program.IsAdmin ? "Changing HidHide needs administrator rights: click the HidHide badge at the top to restart as administrator."
                 : !HidHide.Allowed ? "HidHide setup failed - see the Log page."
-                : "Without this, Steam sees two controllers (the real one and Omnipad's). After turning it on, unplug and replug once.";
+                : "Without this, Steam and emulators see two controllers: the real one and Omnipad's Xbox one. RetroArch and other emulators that list every controller " +
+                  "often grab the real Nintendo one, which only Omnipad can read, so buttons do nothing. Turn this on, then unplug and replug once.";
 
             if (Program.emClient != null) vigemPill.Set("Xbox driver OK", Theme.Good);
             else vigemPill.Set("Xbox driver missing", Theme.Bad);
