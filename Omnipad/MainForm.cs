@@ -331,6 +331,7 @@ namespace Omnipad {
 
             AddPage("Controllers", BuildControllersPage());
             AddPage("USB Devices", BuildDevicesPage());
+            AddPage("Buttons", BuildButtonsPage());
             AddPage("Settings", BuildSettingsPage());
             AddPage("Log", BuildLogPage());
             ShowPage("Controllers");
@@ -390,7 +391,7 @@ namespace Omnipad {
 
         Control BuildNav() {
             var nav = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 200, BackColor = Theme.Surface, FlowDirection = FlowDirection.TopDown, Padding = new Padding(12, 18, 12, 12), WrapContents = false };
-            var items = new[] { ("Controllers", Theme.GlyphGame), ("USB Devices", Theme.GlyphUsb), ("Settings", Theme.GlyphSettings), ("Log", Theme.GlyphLog) };
+            var items = new[] { ("Controllers", Theme.GlyphGame), ("Buttons", "\uE765"), ("USB Devices", Theme.GlyphUsb), ("Settings", Theme.GlyphSettings), ("Log", Theme.GlyphLog) };
             foreach (var it in items) {
                 var b = new NavItem(it.Item1, it.Item2);
                 string n = it.Item1;
@@ -502,6 +503,56 @@ namespace Omnipad {
             return page;
         }
 
+        // Every button on the controller, each mappable to another Xbox button, nothing, or an action.
+        Panel BuildButtonsPage() {
+            var page = new Panel { BackColor = Theme.Bg };
+            var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Bg };
+            body.Controls.Add(Theme.Label(Playnite.Installed ? "Playnite found - pick \"Playnite: open Fullscreen mode\" for any button (Home is a good one)."
+                : "Playnite not found. Its actions start working once it's installed (or open, if it's a portable copy).", Theme.Small, Playnite.Installed ? Theme.Good : Theme.Muted));
+            body.Controls.Add(Theme.Label("\"Default\" is the normal layout (and follows the Nintendo / Xbox labels switch in Settings). Changes apply straight away. Pro Controller and Joy-Con pairs.", Theme.Small, Theme.Muted));
+            var rows = new List<Action>();
+            foreach (var pad in Mapping.Pads) {
+                var row = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
+                var l = Theme.Label(pad.label); l.AutoSize = false; l.Width = 150; l.Height = 26; l.TextAlign = ContentAlignment.MiddleLeft;
+                var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Theme.Surface2, ForeColor = Theme.Text, Font = Theme.Body, Width = 270, MaxDropDownItems = 20 };
+                foreach (var t in Mapping.Targets) box.Items.Add(t.text);
+                var arg = new TextBox { Width = 220, BackColor = Theme.Surface2, ForeColor = Theme.Text, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Body, Margin = new Padding(8, 1, 0, 0) };
+                var browse = Theme.Button("Browse…", null); browse.Margin = new Padding(6, 0, 0, 0);
+                string id = pad.id;
+                void Load() {
+                    box.SelectedIndex = Math.Max(0, Array.FindIndex(Mapping.Targets, t => t.value == Mapping.Get(id)));
+                    arg.Text = Mapping.Arg(id);
+                    string v = Mapping.Get(id);
+                    arg.Visible = v == "keys" || v == "run"; browse.Visible = v == "run";
+                }
+                Load(); rows.Add(Load);
+                box.SelectedIndexChanged += (s, e) => {
+                    string v = Mapping.Targets[box.SelectedIndex].value;
+                    if (v == Mapping.Get(id)) return;
+                    Mapping.Set(id, v, arg.Text.Trim());
+                    arg.Visible = v == "keys" || v == "run"; browse.Visible = v == "run";
+                    if (v == "keys" && arg.Text.Length == 0) arg.Text = "Win+P";
+                };
+                arg.Leave += (s, e) => Mapping.Set(id, Mapping.Get(id), arg.Text.Trim());
+                browse.Click += (s, e) => {
+                    using (var d = new OpenFileDialog { Title = "Pick what to run", Filter = "Programs and shortcuts|*.exe;*.lnk;*.bat;*.cmd;*.url|All files|*.*" })
+                        if (d.ShowDialog(this) == DialogResult.OK) { arg.Text = d.FileName; Mapping.Set(id, Mapping.Get(id), d.FileName); }
+                };
+                row.Controls.Add(l); row.Controls.Add(box); row.Controls.Add(arg); row.Controls.Add(browse);
+                body.Controls.Add(row);
+            }
+            body.Controls.Add(Theme.Label("Keys: e.g. Win+P, Ctrl+Alt+T, Space, Esc - held down while you hold the button.  Home on Default = Xbox Guide plus the \"Hold Home\" action in Settings; Capture on Default = the Capture action and hold shortcut in Settings.", Theme.Small, Theme.Muted));
+            var reset = Theme.Button("Reset all to default", (s, e) => {
+                foreach (var pad in Mapping.Pads) Mapping.Set(pad.id, "default", "");
+                foreach (var r in rows) r();
+            });
+            reset.Margin = new Padding(0, 10, 0, 0);
+            body.Controls.Add(reset);
+            page.Controls.Add(body);
+            PageHeader(page, "Buttons", "Map every button: to another Xbox button, to nothing, or to an action like opening Playnite.");
+            return page;
+        }
+
         Panel BuildSettingsPage() {
             var page = new Panel { BackColor = Theme.Bg };
             var body = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Bg };
@@ -556,7 +607,7 @@ namespace Omnipad {
                 new[] { ("steam", "Steam screenshot (F12, in games)"), ("windows", "Windows screenshot (Game Bar)"), ("clip", "Save last 30 seconds (Game Bar)"), ("none", "Do nothing") },
                 v => Shortcuts.CaptureAction = v));
             body.Controls.Add(ChoiceRow("Hold Home:", "HomeHoldAction", Shortcuts.HomeHoldAction,
-                new[] { ("bigpicture", "Open Steam Big Picture"), ("omnipad", "Open Omnipad"), ("none", "Do nothing") },
+                new[] { ("playnite", "Open Playnite Fullscreen mode"), ("playnite-desktop", "Open Playnite library"), ("omnipad", "Open Omnipad"), ("bigpicture", "Open Steam Big Picture"), ("none", "Do nothing") },
                 v => Shortcuts.HomeHoldAction = v));
             body.Controls.Add(Theme.Label("A quick tap of Home is still the Xbox Guide button.", Theme.Small, Theme.Muted));
             body.Controls.Add(SectionLabel("Hold-to-run shortcuts"));
@@ -653,7 +704,8 @@ namespace Omnipad {
         Control HoldRow(string label, string key) {
             var options = new[] {
                 ("none", "Do nothing"), ("toggle-display", "Switch between PC screen and TV"), ("tv", "TV / second screen only"),
-                ("pc", "PC screen only"), ("extend", "Extend to both screens"), ("bigpicture", "Open Steam Big Picture"),
+                ("pc", "PC screen only"), ("extend", "Extend to both screens"), ("playnite-fullscreen", "Playnite: open Fullscreen mode"),
+                ("playnite-desktop", "Playnite: open library"), ("close-game", "Close the current game (Alt+F4)"), ("bigpicture", "Open Steam Big Picture"),
                 ("omnipad", "Open Omnipad"), ("run", "Run a program, shortcut or website…"), ("keys", "Press keys…") };
             var wrap = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
             var targetRow = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Bg, WrapContents = false, Margin = new Padding(130, 0, 0, 6) };
@@ -1171,7 +1223,7 @@ namespace Omnipad {
             } catch { }
         }
 
-        static void SaveSetting(string key, string value) {
+        public static void SaveSetting(string key, string value) {
             try {
                 var cfg = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
                 if (cfg.AppSettings.Settings[key] == null) cfg.AppSettings.Settings.Add(key, value);

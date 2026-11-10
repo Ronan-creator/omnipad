@@ -177,8 +177,24 @@ namespace Omnipad {
             JustUpdated = args.Contains("--updated");
             StartMinimized = args.Contains("--minimized") || (bool.TryParse(ConfigurationManager.AppSettings["StartMinimized"], out cfgMin) && cfgMin);
 
+            SwitchFromSteamOnce();
             form = new MainForm();
             Application.Run(form);
+        }
+
+        // One time (1.10.0): Steam is out, Playnite is in. Home no longer sends the Xbox Guide button (Steam grabs
+        // it and opens itself) - it opens Playnite's Fullscreen mode; holding Home and the Capture button stop
+        // using Steam too. Everything can be changed back on the Buttons and Settings pages.
+        static void SwitchFromSteamOnce() {
+            try {
+                var app = ConfigurationManager.AppSettings;
+                if (app["SteamToPlaynite"] == "done") return;
+                MainForm.SaveSetting("SteamToPlaynite", "done");
+                if ((app["HomeHoldAction"] ?? "bigpicture") == "bigpicture") { MainForm.SaveSetting("HomeHoldAction", "playnite"); Shortcuts.HomeHoldAction = "playnite"; }
+                if ((app["CaptureAction"] ?? "steam") == "steam") { MainForm.SaveSetting("CaptureAction", "windows"); Shortcuts.CaptureAction = "windows"; }
+                if (Mapping.IsDefault("Home")) Mapping.Set("Home", "playnite-fullscreen", "");
+                ConfigurationManager.RefreshSection("appSettings");
+            } catch { }
         }
     }
 }

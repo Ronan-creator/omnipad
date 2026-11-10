@@ -43,7 +43,7 @@ namespace Omnipad {
 
             // Capture is on the Pro Controller and the left Joy-Con; Home on the Pro Controller and the right Joy-Con.
             // (In a pair, the other Joy-Con mirrors Home, so only read it where it physically is.)
-            if (jc.isPro || jc.isLeft) {
+            if ((jc.isPro || jc.isLeft) && Mapping.IsDefault("Capture")) {
                 bool cap = jc.GetButton(Joycon.Button.CAPTURE);
                 bool capHold = Action("CaptureHold") != "none";
                 if (cap && !st.capture) {
@@ -55,7 +55,8 @@ namespace Omnipad {
                 }
                 if (!cap && st.capture && capHold && !st.capFired) Capture();   // with a hold shortcut, a tap acts on release
                 st.capture = cap;
-
+            }
+            if (jc.isPro || jc.isLeft) {
                 // Minus stays Xbox Back for games; holding it long enough also runs its shortcut.
                 bool minus = jc.GetButton(Joycon.Button.MINUS);
                 if (minus && !st.minus) { st.minusDown = DateTime.Now; st.minusFired = false; }
@@ -64,7 +65,7 @@ namespace Omnipad {
                 }
                 st.minus = minus;
             }
-            if (jc.isPro || !jc.isLeft) {
+            if ((jc.isPro || !jc.isLeft) && Mapping.IsDefault("Home")) {
                 bool home = jc.GetButton(Joycon.Button.HOME);
                 if (home && !st.home) { st.homeDown = DateTime.Now; st.homeFired = false; }
                 if (home && !st.homeFired && (DateTime.Now - st.homeDown).TotalMilliseconds >= HoldMs) {
@@ -89,6 +90,8 @@ namespace Omnipad {
 
         static void HomeHeld() {
             switch (HomeHoldAction) {
+                case "playnite": Playnite.OpenFullscreen(); break;
+                case "playnite-desktop": Playnite.OpenDesktop(); break;
                 case "bigpicture":
                     try { System.Diagnostics.Process.Start("steam://open/bigpicture"); } catch (Exception e) { MainForm.Log("Big Picture: " + e.Message); }
                     break;
@@ -112,6 +115,9 @@ namespace Omnipad {
                         case "pc": onTv = false; Display("/internal"); break;
                         case "extend": Display("/extend"); break;
                         case "bigpicture": System.Diagnostics.Process.Start("steam://open/bigpicture"); break;
+                        case "playnite-fullscreen": Playnite.OpenFullscreen(); break;
+                        case "playnite-desktop": Playnite.OpenDesktop(); break;
+                        case "close-game": Playnite.CloseGame(); break;
                         case "omnipad": Program.Form?.ShowFromController(); break;
                         case "run":
                             if (target.Length == 0) return;
@@ -134,7 +140,7 @@ namespace Omnipad {
         }
 
         // "Ctrl+Alt+T", "Win+P", "Alt+Enter", "F12"... -> virtual-key codes.
-        static ushort[] ParseKeys(string text) {
+        public static ushort[] ParseKeys(string text) {
             var list = new List<ushort>();
             foreach (var raw in text.Split('+')) {
                 string k = raw.Trim().ToLowerInvariant();
@@ -170,6 +176,16 @@ namespace Omnipad {
 
         // ---- keyboard injection ----
         const ushort VK_F12 = 0x7B, VK_LWIN = 0x5B, VK_MENU = 0x12, VK_SNAPSHOT = 0x2C;
+
+        public static void Press(ushort[] keys) { Keys(keys); }
+        public static void CaptureNow() { Capture(); }
+        // Hold keys down / let them go (for buttons mapped to keys).
+        public static void KeysState(ushort[] keys, bool down) {
+            var inputs = new List<INPUT>();
+            if (down) foreach (var k in keys) inputs.Add(Key(k, false));
+            else for (int i = keys.Length - 1; i >= 0; i--) inputs.Add(Key(keys[i], true));
+            SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
+        }
 
         static void Keys(params ushort[] keys) {
             var inputs = new List<INPUT>();

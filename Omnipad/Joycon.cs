@@ -724,6 +724,7 @@ namespace Omnipad {
                 }
                 report.SetAxis(Xbox360Axes.LeftTrigger, (short)(buttons[(int)(isLeft ? Button.SHOULDER_2 : Button.SHOULDER2_2)] ? Int16.MaxValue : 0));
 				report.SetAxis(Xbox360Axes.RightTrigger, (short)(buttons[(int)(isLeft ? Button.SHOULDER2_2 : Button.SHOULDER_2)] ? Int16.MaxValue : 0));
+				Mapping.Apply(this);   // your button mapping, if you've changed any
 			}
 
 			return 0;
