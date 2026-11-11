@@ -9,7 +9,7 @@ using System.Windows.Forms;
 
 namespace Omnipad {
     // Local control channel for OmniBoy (the Playnite console frontend): list the controllers and change who is Player 1.
-    // One line in, reply lines out, then "END". Commands: LIST, FIRST <slot 0-3>, VERSION.
+    // One line in, reply lines out, then "END". Commands: LIST, FIRST <slot 0-3>, LAYOUT labels|positions|default, VERSION.
     public static class PadPipe {
         public const string Name = "omnipad-control";
 
@@ -41,11 +41,29 @@ namespace Omnipad {
             }
         }
 
+        // OmniBoy switches the button layout per game (Nintendo positions for Nintendo games, say) without touching
+        // the saved setting; "default" puts the saved one back.
+        static bool overriding, saved;
+        // the layout was changed by hand in Omnipad: that choice wins, nothing to put back later
+        public static void ForgetOverride() { overriding = false; }
+        static string Layout(string mode) {
+            if (mode == "default") {
+                if (overriding) { Prefs.SwapButtons = saved; overriding = false; }
+                return "OK";
+            }
+            if (mode != "labels" && mode != "positions") return "ERR use labels, positions or default";
+            if (!overriding) { saved = Prefs.SwapButtons; overriding = true; }
+            Prefs.SwapButtons = mode == "labels";
+            MainForm.Log("Button layout for this game: " + (Prefs.SwapButtons ? "Xbox labels" : "Nintendo positions"));
+            return "OK";
+        }
+
         static IEnumerable<string> Handle(string cmd) {
             var mgr = Program.mgr;
             if (mgr == null) return new[] { "ERR not ready" };
             if (cmd == "LIST") return mgr.Describe();
             if (cmd == "VERSION") return new[] { Application.ProductVersion };
+            if (cmd.StartsWith("LAYOUT ")) return new[] { Layout(cmd.Substring(7).Trim().ToLowerInvariant()) };
             if (cmd.StartsWith("FIRST ") && int.TryParse(cmd.Substring(6).Trim(), out int slot) && slot >= 0 && slot <= 3)
                 return new[] { mgr.MakeFirst(slot) };
             return new[] { "ERR unknown command" };

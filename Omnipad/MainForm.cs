@@ -600,7 +600,7 @@ namespace Omnipad {
             body.Controls.Add(SectionLabel("Buttons"));
             layoutChoice = (ComboBox)((FlowLayoutPanel)ChoiceRow("Button layout:", "SwapButtons", Prefs.SwapButtons ? "true" : "false",
                 new[] { ("false", "Nintendo positions (bottom button = Xbox A)"), ("true", "Xbox labels (press A, the game gets A)") },
-                v => Prefs.SwapButtons = v == "true")).Controls[1];
+                v => { PadPipe.ForgetOverride(); Prefs.SwapButtons = v == "true"; })).Controls[1];
             body.Controls.Add(layoutChoice.Parent);
             body.Controls.Add(Theme.Label("Applies straight away. Also in the tray menu, to flip back and forth.", Theme.Small, Theme.Muted));
             body.Controls.Add(ChoiceRow("Capture button:", "CaptureAction", Shortcuts.CaptureAction,
@@ -694,6 +694,7 @@ namespace Omnipad {
         }
 
         public void SetButtonLayout(bool xboxLabels) {
+            PadPipe.ForgetOverride();
             Prefs.SwapButtons = xboxLabels;
             SaveSetting("SwapButtons", xboxLabels ? "true" : "false");
             AppendTextBox("Button layout: " + (xboxLabels ? "Xbox labels (A is A)" : "Nintendo positions") + "\r\n");
