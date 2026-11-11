@@ -292,6 +292,56 @@ namespace Omnipad {
             if (pad.LastSlot >= 0) jc.SetPlayerSlot(pad.LastSlot); // keep the same player light after a USB/Bluetooth switch
         }
 
+        // Every virtual Xbox pad Omnipad has plugged in right now.
+        List<VirtualPad> LivePads() {
+            var list = new List<VirtualPad>();
+            try {
+                foreach (var jc in j.ToList()) if (jc.xin != null && !list.Contains(jc.xin)) list.Add(jc.xin);
+                lock (pads) foreach (var p in pads.Values.ToList()) if (!list.Contains(p)) list.Add(p);
+            } catch { }
+            return list.Where(p => p.IsConnected).ToList();
+        }
+
+        // For OmniBoy's controller settings: one line per pad, "slot<TAB>kind<TAB>battery<TAB>link".
+        public List<string> Describe() {
+            var lines = new List<string>();
+            foreach (var p in LivePads()) {
+                Joycon jc = p.Owner;
+                string kind = jc == null ? "Controller (reconnecting)"
+                    : jc.isPro ? "Pro Controller"
+                    : jc.other != null ? "Joy-Con pair"
+                    : jc.isLeft ? "Left Joy-Con" : "Right Joy-Con";
+                string bat = jc != null && jc.batteryPercent >= 0 ? jc.batteryPercent + "%" : "";
+                string link = jc == null ? "" : jc.isUSB ? "USB" : "Bluetooth";
+                lines.Add(p.LastSlot + "\t" + kind + "\t" + bat + "\t" + link);
+            }
+            return lines;
+        }
+
+        // Makes the pad that is Player <slot+1> into Player 1: unplug every virtual pad, then plug them back
+        // in with that one first. Windows numbers pads in the order they arrive.
+        public string MakeFirst(int slot) {
+            if (!Monitor.TryEnter(scanLock, 3000)) return "ERR busy, try again";
+            try {
+                var all = LivePads();
+                var first = all.FirstOrDefault(p => p.LastSlot == slot);
+                if (first == null) return "ERR no Omnipad controller is Player " + (slot + 1);
+                if (slot == 0 || all.Count < 2) return "OK";
+                var order = new List<VirtualPad> { first };
+                order.AddRange(all.Where(p => p != first).OrderBy(p => p.LastSlot < 0 ? 9 : p.LastSlot));
+                foreach (var p in order) { p.SendNeutral(); p.Unplug(); }
+                Thread.Sleep(600);
+                foreach (var p in order) { p.Plug(); Thread.Sleep(450); }
+                form.AppendTextBox("Player order changed: the controller that was Player " + (slot + 1) + " is now Player 1.\r\n");
+                return "OK";
+            } catch (Exception e) {
+                MainForm.Log("Reorder failed: " + e);
+                return "ERR " + e.Message;
+            } finally {
+                Monitor.Exit(scanLock);
+            }
+        }
+
         public void Update() {
             for (int i = 0; i < j.Count; ++i)
                 j[i].Update();

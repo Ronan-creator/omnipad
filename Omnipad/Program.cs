@@ -107,6 +107,7 @@ namespace Omnipad {
             mgr.Awake();
             mgr.CheckForNewControllers();
             mgr.Start();
+            PadPipe.Start(); // OmniBoy talks to Omnipad here
 
             server = new UdpServer(mgr.j);
             server.form = form;

@@ -30,7 +30,8 @@ namespace Omnipad {
             Xbox360Axis.LeftThumbX, Xbox360Axis.LeftThumbY, Xbox360Axis.RightThumbX, Xbox360Axis.RightThumbY,
         };
 
-        readonly IXbox360Controller target;
+        readonly ViGEmClient client;
+        IXbox360Controller target;
         readonly object sync = new object();
         bool connected, disposed;
 
@@ -43,20 +44,31 @@ namespace Omnipad {
         public int LastSlot = -1;
 
         public VirtualPad(ViGEmClient client) {
-            target = client.CreateXbox360Controller();
-            target.AutoSubmitReport = false;
-            target.FeedbackReceived += (s, e) => {
-                Rumble?.Invoke(e.LargeMotor, e.SmallMotor);
-                if (e.LedNumber <= 3 && e.LedNumber != LastSlot) {
-                    LastSlot = e.LedNumber;
-                    Slot?.Invoke(e.LedNumber);
-                }
-            };
+            this.client = client;
+            target = Create();
         }
+
+        IXbox360Controller Create() {
+            var t = client.CreateXbox360Controller();
+            t.AutoSubmitReport = false;
+            t.FeedbackReceived += OnFeedback;
+            return t;
+        }
+
+        void OnFeedback(object sender, Xbox360FeedbackReceivedEventArgs e) {
+            Rumble?.Invoke(e.LargeMotor, e.SmallMotor);
+            if (e.LedNumber <= 3 && e.LedNumber != LastSlot) {
+                LastSlot = e.LedNumber;
+                Slot?.Invoke(e.LedNumber);
+            }
+        }
+
+        public bool IsConnected { get { lock (sync) return connected && !disposed; } }
 
         public void Connect() {
             lock (sync) {
                 if (connected || disposed) return;
+                if (target == null) target = Create();
                 target.Connect();
                 connected = true;
             }
@@ -67,6 +79,28 @@ namespace Omnipad {
                 if (!connected) return;
                 try { target.Disconnect(); } catch { }
                 connected = false;
+            }
+        }
+
+        // Unplugs this pad completely (a fresh virtual controller is made on the next Plug), so Windows
+        // hands out player numbers again in the order the pads are plugged back in.
+        public void Unplug() {
+            lock (sync) {
+                if (target == null) return;
+                if (connected) { try { target.Disconnect(); } catch { } connected = false; }
+                try { target.FeedbackReceived -= OnFeedback; } catch { }
+                try { (target as IDisposable)?.Dispose(); } catch { }
+                target = null;
+            }
+        }
+
+        public void Plug() {
+            lock (sync) {
+                if (connected || disposed) return;
+                if (target == null) target = Create();
+                LastSlot = -1;
+                target.Connect();
+                connected = true;
             }
         }
 
